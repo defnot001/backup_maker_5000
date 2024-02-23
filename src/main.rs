@@ -75,7 +75,7 @@ impl Config {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    
+
     env_logger::Builder::new()
         .filter_level(match args.verbose {
             0 => log::LevelFilter::Error, // Default to only showing errors
@@ -86,7 +86,7 @@ async fn main() {
         .init();
 
     log::info!("Starting pterobackup...");
-    
+
     let config = Config::load().expect("Failed to load config");
     let gcs_client = generate_gcs_client(config.gcs_credentials_path.as_str()).await.expect("Failed to generate GCS Client");
 
@@ -117,7 +117,7 @@ async fn generate_gcs_client(credentials_file_path: &str) -> anyhow::Result<GCSC
 fn compress_volume(volume_dir: String, server_type: &ServerType, exclude: &Option<String>) -> anyhow::Result<String> {
     let now = chrono::Utc::now();
     let file_name = format!("{}_KiwiTech_{}.tar.gz", now.format("%Y-%m-%d"), server_type.to_string().to_uppercase());
-    
+
     create_tar_gz(volume_dir, file_name.clone(), exclude)?;
     Ok(file_name)
 }
