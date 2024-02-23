@@ -1,13 +1,17 @@
 #![allow(unused, dead_code)]
 
+use std::borrow::Cow;
+use std::fmt::Display;
+use std::fs::{File, Metadata, ReadDir};
+use std::io::Read;
+use std::ops::ControlFlow;
 use clap::{Parser, ValueEnum};
+use flate2::write::GzEncoder;
 use serde::Deserialize;
 use google_cloud_storage::client::{ClientConfig, Client as GCSClient};
 use google_cloud_storage::client::google_cloud_auth::credentials::CredentialsFile;
 use google_cloud_storage::http::buckets::list::ListBucketsRequest;
-use reqwest::{Client as ReqwestClient, ClientBuilder};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::header;
+use google_cloud_storage::http::objects::upload::{Media, UploadObjectRequest, UploadType};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -32,26 +36,24 @@ enum ServerType {
     Cmp,
 }
 
+impl Display for ServerType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ServerType::Smp => write!(f, "smp"),
+            ServerType::Cmp => write!(f, "cmp"),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct Config {
-    ptero_url: String,
-    ptero_key: String,
-    gcs_credentials: String,
-    mc_server_host: String,
-    servers: Servers,
+    gcs_credentials_path: String,
+    gcs_bucket_name: String,
+    volumes_path: String,
+    smp_uuid: Uuid,
+    cmp_uuid: Uuid,
 }
 
-#[derive(Debug, Deserialize)]
-struct Servers {
-    smp: MCServer,
-    cmp: MCServer,
-}
-
-#[derive(Debug, Deserialize)]
-struct MCServer {
-    server_id: String,
-    port: u16,
-}
 
 impl Config {
     fn load() -> anyhow::Result<Self> {
@@ -60,29 +62,29 @@ impl Config {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct Backup {
-    pub uuid: Uuid,
-    pub name: String,
-    pub ignored_files: Vec<String>,
-    pub checksum: Option<String>,
-    pub bytes: u64,
-    pub created_at: String,
-    pub completed_at: Option<String>,
-    pub is_locked: bool,
-}
-
-
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
     let config = Config::load().expect("Failed to load config");
-    let base_url = format!("{}/api/client", &config.ptero_url);
 
-    let gcs_client = generate_gcs_client(config.gcs_credentials.as_str()).await.expect("Failed to generate GCS Client");
-    let reqwest_client = generate_reqwest_client(config.ptero_key.as_str()).expect("Failed to generate Reqwest Client");
+    let gcs_client = generate_gcs_client(config.gcs_credentials_path.as_str()).await.expect("Failed to generate GCS Client");
 
-    let created_backup = create_backup(&reqwest_client, &args.server, &config.servers, base_url.as_str()).await.expect("Failed to create backup.");
+    let volume_path = match args.server {
+        ServerType::Smp => format!("{}/{}", config.volumes_path, config.smp_uuid),
+        ServerType::Cmp => format!("{}/{}", config.volumes_path, config.cmp_uuid),
+    };
+
+    let volume_dir = std::fs::read_dir(volume_path).expect("Failed to read volume directory");
+    let (mut tar_gz, filename) = gzip_volume(volume_dir, &args.server).expect("Failed to create tar.gz file");
+    let metadata = tar_gz.metadata().expect("Failed to get metadata");
+
+    let mut buffer: Vec<u8> = vec![0; metadata.len() as usize];
+    tar_gz.read_exact(&mut buffer).expect("Failed to read file. Buffer too small?");
+
+    let uploaded = gcs_client.upload_object(&UploadObjectRequest {
+        bucket: config.gcs_bucket_name.clone(),
+        ..Default::default()
+    }, buffer, &UploadType::Simple(get_media(metadata, filename, &args.server))).await.expect("Failed to upload file");
 }
 
 async fn generate_gcs_client(credentials_file_path: &str) -> anyhow::Result<GCSClient> {
@@ -90,34 +92,20 @@ async fn generate_gcs_client(credentials_file_path: &str) -> anyhow::Result<GCSC
     let gcs_config = ClientConfig::default().with_credentials(credentials_file).await?;
     Ok(GCSClient::new(gcs_config))
 }
+fn gzip_volume(volume_dir: ReadDir, server_type: &ServerType) -> anyhow::Result<(File, String)> {
+    let now = chrono::Utc::now();
+    let file_name = format!("{}_KiwiTech_{}.tar", now.format("%Y-%m-%d"), server_type.to_string().to_uppercase());
 
-fn generate_reqwest_client(ptero_key: &str) -> anyhow::Result<ReqwestClient> {
-    let mut headers = HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_static("application/json"));
-    headers.insert("Content-Type", HeaderValue::from_static("application/json"));
-    headers.insert("Authorization", HeaderValue::from_str(format!("Bearer {}", ptero_key).as_str()).unwrap());
+    let tar_gz = File::create(file_name.as_str())?;
+    let mut encoder = GzEncoder::new(tar_gz, flate2::Compression::default());
 
-    Ok(ClientBuilder::new()
-        .default_headers(headers)
-        .build()?)
+    Ok((encoder.finish()?, file_name))
 }
 
-async fn create_backup(req_client: &ReqwestClient, server: &ServerType, servers: &Servers, base_url: &str) -> anyhow::Result<Backup> {
-    let server_id = get_server_id(server, servers);
-    let req_url = format!("{}/api/client/servers/{}/backups",base_url, server_id);
+fn get_media(metadata: Metadata, filename: String, server_type: &ServerType) -> Media {
+    let mut media = Media::new(format!("KiwiTech/{}/{}", server_type.to_string().to_uppercase(), filename.as_str()));
+    media.content_type = Cow::from("application/gzip");
+    media.content_length = Some(metadata.len());
 
-    Ok(req_client.post(req_url).send().await?.json::<Backup>().await?)
-}
-
-async fn wait_until_backup_done() {
-    
-}
-
-fn get_server_id(server:&ServerType, servers: &Servers) -> String {
-    let server_id = match server {
-        ServerType::Smp => &servers.smp.server_id,
-        ServerType::Cmp => &servers.cmp.server_id,
-    };
-
-    server_id.to_string()
+    media
 }
