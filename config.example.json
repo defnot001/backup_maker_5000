@@ -1,0 +1,8 @@
+{
+  "mc_server_name": "YourServerName",
+  "gcs_credentials_path": "project_id-letterwithafewdigits.json",
+  "gcs_bucket_name": "bucketname",
+  "volumes_path": "/var/lib/pterodactyl/volumes",
+  "smp_uuid": "eightxxx-four-four-four-twelve",
+  "cmp_uuid": "eightyyy-four-four-four-twelve"
+}
