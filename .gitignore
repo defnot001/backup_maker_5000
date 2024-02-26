@@ -1,3 +1,6 @@
 /target
-*.json
+config.json
 .idea
+
+# Very strange way of hiding the filename in the .gitignore file
+t*.json
