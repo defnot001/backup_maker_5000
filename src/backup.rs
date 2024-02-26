@@ -1,7 +1,7 @@
 use crate::cli::ServerType;
 use crate::Config;
 use flate2::write::GzEncoder;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::path::Path;
 use walkdir::WalkDir;
 
@@ -36,7 +36,11 @@ fn create_tar_gz<P: AsRef<Path>>(
     exclude: &Option<String>,
 ) -> anyhow::Result<()> {
     log::info!("Creating tar.gz file: {:?}", output_file.as_ref());
-    let tar_file = File::create(output_file.as_ref())?;
+    let tar_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(output_file.as_ref())?;
     let enc = GzEncoder::new(tar_file, flate2::Compression::default());
     let mut tar_builder = tar::Builder::new(enc);
 
