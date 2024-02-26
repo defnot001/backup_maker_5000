@@ -1,7 +1,7 @@
 use crate::cli::ServerType;
 use crate::Config;
 use flate2::write::GzEncoder;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::Path;
 use walkdir::WalkDir;
 
