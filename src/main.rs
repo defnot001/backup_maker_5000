@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions, ReadDir};
+use std::fs::File;
 use std::io::Read;
 
 use clap::Parser;

@@ -16,8 +16,6 @@ struct Claims {
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: String,
-    token_type: String,
-    expires_in: usize,
 }
 
 #[derive(Debug, Deserialize)]
