@@ -60,11 +60,11 @@ async fn main() {
     let buffer = create_buffer(&mut compressed_backup).expect("Failed to create buffer");
     log::debug!("Buffer with lenth {} created.", buffer.len());
 
-    delete_local_file(&backup_file_name).expect("Failed to delete local file");
-    log::debug!("Local backup file deleted.");
-
     upload_file(config.mc_server_name.as_str(), &cli_args.server, config.gcs_bucket_name.as_str(), backup_file_name.as_str(), &access_token).await.expect("Failed to upload file");
     log::info!("Backup uploaded to GCS bucket: {}", config.gcs_bucket_name);
+
+    delete_local_file(&backup_file_name).expect("Failed to delete local file");
+    log::debug!("Local backup file deleted.");
 }
 
 fn create_buffer(file: &mut File) -> anyhow::Result<Vec<u8>> {
